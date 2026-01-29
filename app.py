@@ -85,13 +85,12 @@ def pick_file(folder, keywords):
     """폴더에서 키워드가 포함된 파일 찾기"""
     if not os.path.isdir(folder): return None
     candidates = []
-    # 대소문자 구분 없이 검색 및 하위 폴더 고려 안함 (현재 폴더만)
+    # 대소문자 구분 없이 검색
     for file in os.listdir(folder):
         if file.endswith(".xlsx") or file.endswith(".xlsm"):
             if any(k in file for k in keywords):
                 candidates.append(os.path.join(folder, file))
     
-    # 이름 길이순 정렬 (짧은 게 보통 원본일 확률 높음)
     candidates = sorted(list(set(candidates)), key=lambda x: len(os.path.basename(x)))
     return candidates[0] if candidates else None
 
@@ -113,56 +112,46 @@ def get_col_val(row, idx):
 # --------------------------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_all_data():
-    # ★ 핵심 수정: 현재 app.py가 있는 폴더를 데이터 폴더로 설정
+    # 현재 파일이 있는 폴더 위치 자동 감지
     data_dir = os.path.dirname(os.path.abspath(__file__))
     
     df_info, df_book, df_inq, df_susi = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    files_found = [] # 디버깅용: 찾은 파일 목록
 
     # 1. 학과 정보 파일 찾기
     f_info = pick_file(data_dir, ["계열 학과", "학과 계열"])
     if not f_info: f_info = pick_file(data_dir, ["학과카드"])
     
     if f_info:
-        files_found.append(f"학과정보: {os.path.basename(f_info)}")
         try: df_info = pd.read_excel(f_info, sheet_name=0, header=0)
         except: pass
-    else:
-        files_found.append("❌ 학과정보 파일 못찾음 (계열 학과.xlsx 또는 학과카드.xlsx)")
 
     # 2. 추천 도서 파일 찾기
     f_book = pick_file(data_dir, ["추천도서"])
     if not f_book: f_book = pick_file(data_dir, ["학과카드"])
 
     if f_book:
-        files_found.append(f"추천도서: {os.path.basename(f_book)}")
         try:
             if "학과카드" in f_book:
                 df_book = pd.read_excel(f_book, sheet_name=1, header=0).fillna('')
             else:
                 df_book = pd.read_excel(f_book, header=0).fillna('')
             
+            # 연도 전처리
             year_col = next((c for c in df_book.columns if "연도" in str(c)), None)
             if year_col:
                 df_book[year_col] = pd.to_numeric(df_book[year_col], errors='coerce').fillna(0).astype(int).astype(str)
                 df_book[year_col] = df_book[year_col].replace('0', '')
         except: pass
-    else:
-        files_found.append("❌ 추천도서 파일 못찾음")
 
     # 3. 탐구 주제 파일 찾기
     f_inq_file = pick_file(data_dir, ["탐구주제", "탐구"])
     if f_inq_file:
-        files_found.append(f"탐구주제: {os.path.basename(f_inq_file)}")
         try: df_inq = pd.read_excel(f_inq_file).fillna('')
         except: pass
-    else:
-        files_found.append("❌ 탐구주제 파일 못찾음")
 
     # 4. 수시 데이터 파일 찾기
     f_susi_file = pick_file(data_dir, ["susi", "수시"])
     if f_susi_file:
-        files_found.append(f"수시입결: {os.path.basename(f_susi_file)}")
         try:
             df_susi = pd.read_excel(f_susi_file, sheet_name="대학자료")
             cols_int = ['연도', '모집인원', '충원인원', '추합', '예비']
@@ -174,27 +163,15 @@ def load_all_data():
             for c in ['지역', '대학', '전형', '학과']:
                 if c in df_susi.columns: df_susi[c] = df_susi[c].astype(str)
         except: pass
-    else:
-        files_found.append("❌ 수시 데이터 파일 못찾음")
 
-    return df_info, df_book, df_inq, df_susi, files_found, data_dir
+    return df_info, df_book, df_inq, df_susi
 
 # --------------------------------------------------------------------------
 # 4. 실행 및 사이드바
 # --------------------------------------------------------------------------
-df_info, df_book, df_inq, df_susi, files_log, current_path = load_all_data()
+df_info, df_book, df_inq, df_susi = load_all_data()
 
 st.sidebar.title("🔍 검색 옵션")
-
-# [디버깅용] 파일 인식 상태 확인 (문제가 해결되면 주석 처리 가능)
-with st.sidebar.expander("📂 파일 인식 상태 (점검용)"):
-    st.write(f"현재 폴더: `{current_path}`")
-    for log in files_log:
-        if "❌" in log:
-            st.error(log)
-        else:
-            st.success(log)
-    st.info("이 폴더에 엑셀 파일이 있어야 합니다.")
 
 # [파트 1] 학과 특색
 st.sidebar.header("1. 학과 특색 검색")
@@ -213,7 +190,7 @@ if not df_info.empty and len(df_info.columns) >= 2:
     
     sel_dept = st.sidebar.selectbox("🎓 학과 선택", ["선택안함"] + dept_list)
 else:
-    st.sidebar.error("🚨 '계열 학과.xlsx' 파일을 읽지 못했습니다. 폴더 위치를 확인하세요.")
+    st.sidebar.error("🚨 데이터 파일을 읽지 못했습니다. 엑셀 파일이 같은 폴더에 있는지 확인해주세요.")
 
 st.sidebar.markdown("---")
 
